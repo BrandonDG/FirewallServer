@@ -1,40 +1,72 @@
 #!/bin/bash
 
 # User Configuration Section
-ALLOW_TCP="1"
-ALLOW_UDP="1"
-ALLOW_ICMP="1"
+CMD="iptables"
+ALLOW_TCP="80"
+ALLOW_UDP="53"
+ALLOW_ICMP="0"
+ALLOW_OUTSIDE="192.168.0.8"
+ALLOW_INSIDE="192.167.0.7"
 
-# Implementation Section
-iptables -F
-iptables -X
+# Implementation Sectioni
+$CMD -F
+$CMD -X
 
-iptables -P INPUT DROP
-iptables -P OUTPUT DROP
+$CMD -P INPUT DROP
+$CMD -P OUTPUT DROP
+
+# Drop all SYN/FIN packets
+$CMD -A INPUT -p tcp --tcp-flags ALL SYN,FIN -j DROP
+$CMD -A OUTPUT -p tcp --tcp-flags ALL SYN,FIN -j DROP
+
+# Blocking all telnet traffic
+iptables -A INPUT -p tcp --dport 23 -j DROP
+iptables -A INPUT -p tcp --sport 23 -j DROP
+iptables -A OUTPUT -p tcp --dport 23 -j DROP
+iptables -A OUTPUT -p tcp --sport 23 -j DROP
+
+# Block External traffic to specified ports
+# Maybe have to mess around with NIC stuff
+iptables -A OUTPUT -p tcp --dport 32768:32776 -j DROP
+iptables -A OUTPUT -p tcp --dport 137:139 -j DROP
+iptables -A OUTPUT -p tcp -m multiport --dport 111,515 -j DROP
+
+iptables -A OUTPUT -p udp --dport 32768:32776 -j DROP
+iptables -A OUTPUT -p udp --dport 137:139 -j DROP
 
 for port in $ALLOW_TCP
 do
-	iptables -A INPUT -p tcp --dport $port -j ACCEPT
-	iptables -A INPUT -p tcp --sport $port -j ACCEPT
-	iptables -A OUTPUT -p tcp --dport $port -j ACCEPT
-	iptables -A OUTPUT -p tcp --sport $port -j ACCEPT
+	$CMD -A INPUT -p tcp --dport $port -m state --state ESTABLISHED -j ACCEPT
+	$CMD -A INPUT -p tcp --sport $port -m state --state ESTABLISHED -j ACCEPT
+	$CMD -A OUTPUT -p tcp --dport $port -m state --state NEW,ESTABLISHED -j ACCEPT
+	$CMD -A OUTPUT -p tcp --sport $port -m state --state NEW,ESTABLISHED -j ACCEPT
 done
 
 for port in $ALLOW_UDP
 do
-        iptables -A INPUT -p udp --dport $port -j ACCEPT
-        iptables -A INPUT -p udp --sport $port -j ACCEPT
-        iptables -A OUTPUT -p udp --dport $port -j ACCEPT
-        iptables -A OUTPUT -p udp --sport $port -j ACCEPT
+        $CMD -A INPUT -p udp --dport $port -m state --state ESTABLISHED -j ACCEPT
+        $CMD -A INPUT -p udp --sport $port -m state --state ESTABLISHED -j ACCEPT
+        $CMD -A OUTPUT -p udp --dport $port -m state --state NEW,ESTABLISHED -j ACCEPT
+        $CMD -A OUTPUT -p udp --sport $port -m state --state NEW,ESTABLISHED -j ACCEPT
 done
 
-# For some reason ICMP is not working right now, come back later
-#for port in $ALLOW_ICMP
-#do
-#        iptables -A INPUT -p icmp --dport $port -j ACCEPT
-#        iptables -A INPUT -p icmp --sport $port -j ACCEPT
-#        iptables -A OUTPUT -p icmp --dport $port -j ACCEPT
-#        iptables -A OUTPUT -p icmp --sport $port -j ACCEPT
-#done
+for tn in $ALLOW_ICMP
+do
+        $CMD -A INPUT -p icmp --icmp-type $tn -j ACCEPT
+        $CMD -A INPUT -p icmp --icmp-type $tn -j ACCEPT
+        $CMD -A OUTPUT -p icmp --icmp-type $tn -j ACCEPT
+        $CMD -A OUTPUT -p icmp --icmp-type $tn -j ACCEPT
+done
 
+# Not really going to do anything until we implement the card shit and change it.
+for ip in $ALLOW_OUTSIDE
+do
+	$CMD -A INPUT -s $ip -m state --state ESTABLISHED -j ACCEPT
+	$CMD -A OUTPUT -s $ip -m state --state NEW,ESTABLISHED -j ACCEPT
+done
+for ip in $ALLOW_INSIDE
+do
+        $CMD -A INPUT -s $ip -m state --state ESTABLISHED -j ACCEPT
+        $CMD -A OUTPUT -s $ip -m state --state NEW,ESTABLISHED -j ACCEPT
+done
 
