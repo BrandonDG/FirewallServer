@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# User Configuration Section
+ALLOW_TCP="1"
+ALLOW_UDP="1"
+ALLOW_ICMP="1"
+
+# Implementation Section
+iptables -F
+iptables -X
+
+iptables -P INPUT DROP
+iptables -P OUTPUT DROP
+
+for port in $ALLOW_TCP
+do
+	iptables -A INPUT -p tcp --dport $port -j ACCEPT
+	iptables -A INPUT -p tcp --sport $port -j ACCEPT
+	iptables -A OUTPUT -p tcp --dport $port -j ACCEPT
+	iptables -A OUTPUT -p tcp --sport $port -j ACCEPT
+done
+
+for port in $ALLOW_UDP
+do
+        iptables -A INPUT -p udp --dport $port -j ACCEPT
+        iptables -A INPUT -p udp --sport $port -j ACCEPT
+        iptables -A OUTPUT -p udp --dport $port -j ACCEPT
+        iptables -A OUTPUT -p udp --sport $port -j ACCEPT
+done
+
+# For some reason ICMP is not working right now, come back later
+#for port in $ALLOW_ICMP
+#do
+#        iptables -A INPUT -p icmp --dport $port -j ACCEPT
+#        iptables -A INPUT -p icmp --sport $port -j ACCEPT
+#        iptables -A OUTPUT -p icmp --dport $port -j ACCEPT
+#        iptables -A OUTPUT -p icmp --sport $port -j ACCEPT
+#done
+
+
