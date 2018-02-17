@@ -1,72 +1,70 @@
 #!/bin/bash
-
-# User Configuration Section
+DNS_SERVER="142.232.76.200 142.232.76.201 142.232.110.110"
 CMD="iptables"
-ALLOW_TCP="80"
-ALLOW_UDP="53"
-ALLOW_ICMP="0"
-ALLOW_OUTSIDE="192.168.0.8"
-ALLOW_INSIDE="192.167.0.7"
+FW_HOST_IP="192.168.0.11"
+ALLOW_TCP="80 443"
+ALLOW_UDP="5000"
+ALLOW_ICMP="0 8"
 
-# Implementation Sectioni
+# Clear Firewall
 $CMD -F
 $CMD -X
 
-$CMD -P INPUT DROP
-$CMD -P OUTPUT DROP
+# Allow DHCP and DNS
+$CMD -A FORWARD -p udp --dport 67:68 --sport 67:68 -j ACCEPT
+$CMD -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+for ip in $DNS_SERVER
+do
+        $CMD -A FORWARD -p udp -d $ip --dport 53 -m state --state NEW,ESTABLISHED -j ACCEPT
+        $CMD -A FORWARD -p udp -s $ip --sport 53 -m state --state ESTABLISHED -j ACCEPT
+        $CMD -A FORWARD -p tcp -d $ip --dport 53 -m state --state NEW,ESTABLISHED -j ACCEPT
+        $CMD -A FORWARD -p tcp -s $ip --sport 53 -m state --state ESTABLISHED -j ACCEPT
+done
+
+$CMD -A FORWARD -i eno1 -s 192.168.10.0/24 -j DROP
 
 # Drop all SYN/FIN packets
-$CMD -A INPUT -p tcp --tcp-flags ALL SYN,FIN -j DROP
-$CMD -A OUTPUT -p tcp --tcp-flags ALL SYN,FIN -j DROP
+$CMD -A FORWARD -p tcp --tcp-flags ALL SYN,FIN -j DROP
 
-# Blocking all telnet traffic
-iptables -A INPUT -p tcp --dport 23 -j DROP
-iptables -A INPUT -p tcp --sport 23 -j DROP
-iptables -A OUTPUT -p tcp --dport 23 -j DROP
-iptables -A OUTPUT -p tcp --sport 23 -j DROP
+# Blocking all telnet traffic.
+$CMD -A FORWARD -p tcp --dport 23 -j DROP
+$CMD -A FORWARD -p tcp --sport 23 -j DROP
 
 # Block External traffic to specified ports
-# Maybe have to mess around with NIC stuff
-iptables -A OUTPUT -p tcp --dport 32768:32776 -j DROP
-iptables -A OUTPUT -p tcp --dport 137:139 -j DROP
-iptables -A OUTPUT -p tcp -m multiport --dport 111,515 -j DROP
+$CMD -A FORWARD -p tcp --dport 32768:32775 -j DROP
+$CMD -A FORWARD -p tcp --dport 137:139 -j DROP
+$CMD -A FORWARD -p tcp -m multiport --dport 111,515 -j DROP
 
-iptables -A OUTPUT -p udp --dport 32768:32776 -j DROP
-iptables -A OUTPUT -p udp --dport 137:139 -j DROP
+$CMD -A FORWARD -p udp --dport 32768:32775 -j DROP
+$CMD -A FORWARD -p udp --dport 137:139 -j DROP
 
 for port in $ALLOW_TCP
 do
-	$CMD -A INPUT -p tcp --dport $port -m state --state ESTABLISHED -j ACCEPT
-	$CMD -A INPUT -p tcp --sport $port -m state --state ESTABLISHED -j ACCEPT
-	$CMD -A OUTPUT -p tcp --dport $port -m state --state NEW,ESTABLISHED -j ACCEPT
-	$CMD -A OUTPUT -p tcp --sport $port -m state --state NEW,ESTABLISHED -j ACCEPT
+        $CMD -A FORWARD -p tcp --dport $port -m state --state NEW,ESTABLISHED -j ACCEPT
+        $CMD -A FORWARD -p tcp --sport $port -m state --state NEW,ESTABLISHED -j ACCEPT
 done
 
 for port in $ALLOW_UDP
 do
-        $CMD -A INPUT -p udp --dport $port -m state --state ESTABLISHED -j ACCEPT
-        $CMD -A INPUT -p udp --sport $port -m state --state ESTABLISHED -j ACCEPT
-        $CMD -A OUTPUT -p udp --dport $port -m state --state NEW,ESTABLISHED -j ACCEPT
-        $CMD -A OUTPUT -p udp --sport $port -m state --state NEW,ESTABLISHED -j ACCEPT
+        $CMD -A FORWARD -p udp --dport $port -m state --state NEW,ESTABLISHED -j ACCEPT
+        $CMD -A FORWARD -p udp --sport $port -m state --state NEW,ESTABLISHED -j ACCEPT
 done
 
 for tn in $ALLOW_ICMP
 do
-        $CMD -A INPUT -p icmp --icmp-type $tn -j ACCEPT
-        $CMD -A INPUT -p icmp --icmp-type $tn -j ACCEPT
-        $CMD -A OUTPUT -p icmp --icmp-type $tn -j ACCEPT
-        $CMD -A OUTPUT -p icmp --icmp-type $tn -j ACCEPT
+        $CMD -A FORWARD -p icmp --icmp-type $tn -j ACCEPT
 done
 
-# Not really going to do anything until we implement the card shit and change it.
-for ip in $ALLOW_OUTSIDE
-do
-	$CMD -A INPUT -s $ip -m state --state ESTABLISHED -j ACCEPT
-	$CMD -A OUTPUT -s $ip -m state --state NEW,ESTABLISHED -j ACCEPT
-done
-for ip in $ALLOW_INSIDE
-do
-        $CMD -A INPUT -s $ip -m state --state ESTABLISHED -j ACCEPT
-        $CMD -A OUTPUT -s $ip -m state --state NEW,ESTABLISHED -j ACCEPT
-done
+$CMD -P INPUT DROP
+$CMD -P OUTPUT DROP
+$CMD -P FORWARD DROP
 
+# $CMD -A FORWARD -i enp3s2 -o eno1 -j ACCEPT
+
+$CMD -A POSTROUTING -t nat -j SNAT -s 192.168.10.0/24 -o eno1 --to-source $FW_HOST_IP
+$CMD -A PREROUTING -t nat -j DNAT -i eno1 --to-destination 192.168.10.2
+
+# SSH and FTP to Minimize-Delay and FTP-Data to Maximize-Throughput
+$CMD -A PREROUTING -t mangle -p tcp --sport 22 -j TOS --set-tos Minimize-Delay
+$CMD -A PREROUTING -t mangle -p tcp --sport 21 -j TOS --set-tos Minimize-Delay
+$CMD -A PREROUTING -t mangle -p tcp --sport 20 -j TOS --set-tos Maximize-Throughput
